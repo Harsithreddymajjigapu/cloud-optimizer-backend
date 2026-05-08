@@ -14,7 +14,6 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     department = Column(String)
 
-    # The Relationship (Links this user to the servers they own)
     resources = relationship("CloudResource", back_populates="owner")
 
 
