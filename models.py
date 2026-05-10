@@ -27,7 +27,6 @@ class CloudResource(Base):
 class OptimizationAlert(Base):
     __tablename__ = "optimization_alerts"
 
-    # The Columns
     id = Column(Integer, primary_key=True, index=True)
     resource_id = Column(Integer, ForeignKey("cloud_resources.id"))
     ai_recommendation = Column(String) 
