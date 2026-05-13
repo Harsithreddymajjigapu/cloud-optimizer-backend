@@ -44,3 +44,14 @@ def create_server(server: schemas.CloudResourceCreate, db: Session = Depends(get
     analyze_server_efficiency.delay(new_server.id, new_server.average_cpu_usage_percent)
     
     return new_server
+
+@app.get("/servers/", response_model=List[schemas.CloudResourceResponse])
+def get_all_servers(db: Session = Depends(get_db)):
+    """Fetches all cloud resources from the database."""
+    return db.query(models.CloudResource).all()
+
+
+@app.get("/alerts/", response_model=List[schemas.OptimizationAlertResponse])
+def get_all_alerts(db: Session = Depends(get_db)):
+    """Fetches all AI-generated optimization alerts."""
+    return db.query(models.OptimizationAlert).all()
