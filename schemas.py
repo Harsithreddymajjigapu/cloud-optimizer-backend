@@ -47,3 +47,4 @@ class OptimizationAlertResponse(OptimizationAlertBase):
 
     class Config:
         from_attributes = True
+        
