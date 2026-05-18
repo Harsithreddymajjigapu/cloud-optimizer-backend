@@ -51,9 +51,9 @@ def analyze_server_efficiency(server_id: int, cpu_usage: float):
             db.add(new_alert)  
             db.commit()        
             
-            print(f"--- AI Worker: SUCCESS! Saved new alert for Server {server_id} to the database. ---\n")
+            print(f"--- AI Worker: SUCCESS! Saved new alert for Server {server_id} to the database.....---\n")
         else:
-            print(f"--- AI Worker: ERROR! Could not find Server {server_id} in the database. ---\n")
+            print(f"--- AI Worker: ERROR! Could not find Server {server_id} in the database.....---\n")
             
     finally:
         db.close() 
