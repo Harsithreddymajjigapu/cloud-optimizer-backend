@@ -29,19 +29,22 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 def get_all_users(db: Session = Depends(get_db)):
     return db.query(models.User).all()
 
-@app.post("/servers/", response_model=schemas.CloudResourceResponse)
+@app.post("/servers/")
 def create_server(server: schemas.CloudResourceCreate, db: Session = Depends(get_db)):
-    
-    owner = db.query(models.User).filter(models.User.id == server.owner_id).first()
-    if not owner:
-        raise HTTPException(status_code=404, detail="User not found! Cannot assign a server to nobody.")
-    
+    # Save the server to PostgreSQL
     new_server = models.CloudResource(**server.model_dump())
     db.add(new_server)
     db.commit()
-    db.refresh(new_server)
+    db.refresh(new_server) # Make sure we pull the fresh ID from the database
     
-    analyze_server_efficiency.delay(new_server.id, new_server.average_cpu_usage_percent)
+    # THE FIX: Hand off all 5 required arguments to the worker!
+    analyze_server_efficiency.delay(
+        new_server.id, 
+        new_server.average_cpu_usage_percent,
+        new_server.resource_id,
+        new_server.resource_type,
+        new_server.cost_per_hour
+    )
     
     return new_server
 
