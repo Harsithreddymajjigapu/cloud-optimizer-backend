@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 from database import SessionLocal  
 import models
 
-# --- NEW IMPORTS FOR AZURE ---
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.monitor import MonitorManagementClient
 from datetime import timedelta, datetime, timezone
@@ -34,7 +33,6 @@ def fetch_real_cpu_from_azure(resource_uri):
         monitor_client = MonitorManagementClient(credential, subscription_id)
         
         print(f"📊 [Azure] Fetching telemetry for the target VM...")
-        # Use UTC time to ask Azure for the last hour of metrics
         end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(hours=1)
         
@@ -63,16 +61,15 @@ def fetch_real_cpu_from_azure(resource_uri):
 
 @celery_app.task(name="worker.analyze_server_efficiency")
 def analyze_server_efficiency(server_id: int, cpu_usage: float, resource_id: str, resource_type: str, cost: float):
-    print(f"📦 [Celery Worker] Received task for Server ID {server_id}")
+    print(f" [Celery Worker] Received task for Server ID {server_id}")
     
-    # --- THE AUTOMATION UPGRADE ---
-    # If the user passed a real Azure ID, ignore the manual Swagger CPU and fetch the real one!
+    
     real_cpu = cpu_usage 
     if "/subscriptions/" in resource_id:
         fetched_cpu = fetch_real_cpu_from_azure(resource_id)
         if fetched_cpu is not None:
             real_cpu = fetched_cpu
-            print(f"🔄 [Engine] Overriding manual CPU ({cpu_usage}%) with real Azure data ({real_cpu}%)")
+            print(f" [Engine] Overriding manual CPU ({cpu_usage}%) with real Azure data ({real_cpu}%)")
     
     prompt = (
         f"You are an elite Enterprise Cloud FinOps Architect.\n"
@@ -95,7 +92,7 @@ def analyze_server_efficiency(server_id: int, cpu_usage: float, resource_id: str
         )
         
         ai_result: AIServerAnalysis = response.parsed
-        print(f"🤖 [Gemini AI] Successfully generated structured output!")
+        print(f"[Gemini AI] Successfully generated structured output!")
 
         db = SessionLocal()
         try:
