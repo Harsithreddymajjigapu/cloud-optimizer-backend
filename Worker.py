@@ -115,4 +115,4 @@ def analyze_server_efficiency(server_id: int, cpu_usage: float, resource_id: str
             db.close()
 
     except Exception as ai_err:
-        print(f"❌ [Gemini API Error] Failed to fetch or parse response: {ai_err}")
+        print(f"[Gemini API Error] Failed to fetch or parse response: {ai_err}")
