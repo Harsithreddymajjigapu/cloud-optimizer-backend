@@ -107,10 +107,10 @@ def analyze_server_efficiency(server_id: int, cpu_usage: float, resource_id: str
             )
             db.add(new_alert)
             db.commit()
-            print(f"💾 [PostgreSQL] Alert safely written to database for Server ID {server_id}.")
+            print(f" [PostgreSQL] Alert safely written to database for Server ID {server_id}.")
         except Exception as db_err:
             db.rollback()
-            print(f"❌ [PostgreSQL Error] Database write failed: {db_err}")
+            print(f" [PostgreSQL Error] Database write failed: {db_err}")
         finally:
             db.close()
 
