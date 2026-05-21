@@ -31,13 +31,12 @@ def get_all_users(db: Session = Depends(get_db)):
 
 @app.post("/servers/")
 def create_server(server: schemas.CloudResourceCreate, db: Session = Depends(get_db)):
-    # Save the server to PostgreSQL
     new_server = models.CloudResource(**server.model_dump())
     db.add(new_server)
     db.commit()
-    db.refresh(new_server) # Make sure we pull the fresh ID from the database
+    db.refresh(new_server)
     
-    # THE FIX: Hand off all 5 required arguments to the worker!
+    
     analyze_server_efficiency.delay(
         new_server.id, 
         new_server.average_cpu_usage_percent,
