@@ -26,13 +26,13 @@ class AIServerAnalysis(BaseModel):
 def fetch_real_cpu_from_azure(resource_uri):
     """Securely fetches real-time CPU data from Azure Monitor."""
     try:
-        print(f"🔍 [Azure] Logging into Microsoft Entra...")
+        print(f" [Azure] Logging into Microsoft Entra...")
         credential = DefaultAzureCredential() 
         subscription_id = os.getenv("AZURE_SUBSCRIPTION_ID")
         
         monitor_client = MonitorManagementClient(credential, subscription_id)
         
-        print(f"📊 [Azure] Fetching telemetry for the target VM...")
+        print(f" [Azure] Fetching telemetry for the target VM...")
         end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(hours=1)
         
@@ -49,14 +49,14 @@ def fetch_real_cpu_from_azure(resource_uri):
                 averages = [data.average for data in timeseries.data if data.average is not None]
                 if averages:
                     real_cpu = sum(averages) / len(averages)
-                    print(f"✅ [Azure] Real CPU Usage found: {round(real_cpu, 2)}%")
+                    print(f"[Azure] Real CPU Usage found: {round(real_cpu, 2)}%")
                     return round(real_cpu, 2)
                     
-        print("⚠️ [Azure] No CPU data found yet. Defaulting to 0.0%")
+        print(" [Azure] No CPU data found yet. Defaulting to 0.0%")
         return 0.0 
 
     except Exception as e:
-        print(f"❌ [Azure Error] Failed to fetch metrics: {e}")
+        print(f" [Azure Error] Failed to fetch metrics: {e}")
         return None
 
 @celery_app.task(name="worker.analyze_server_efficiency")
