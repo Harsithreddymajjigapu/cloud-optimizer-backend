@@ -13,29 +13,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────
-# CONFIG
-# ──────────────────────────────────────────
 SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# ──────────────────────────────────────────
-# SETUP
-# ──────────────────────────────────────────
 
-# bcrypt for hashing passwords
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# tells FastAPI where the login endpoint is
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-
-# ──────────────────────────────────────────
-# SCHEMAS
-# ──────────────────────────────────────────
 
 class Token(BaseModel):
     access_token: str
@@ -46,10 +34,6 @@ class RegisterRequest(BaseModel):
     password: str
     department: str | None = None
 
-
-# ──────────────────────────────────────────
-# HELPER FUNCTIONS
-# ──────────────────────────────────────────
 
 def hash_password(password: str) -> str:
     """Convert plain password to hashed version"""
@@ -90,10 +74,6 @@ def get_current_user(
 
     return user
 
-
-# ──────────────────────────────────────────
-# ROUTES
-# ──────────────────────────────────────────
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
