@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 import os
@@ -13,17 +13,26 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ──────────────────────────────────────────
+# CONFIG
+# ──────────────────────────────────────────
 SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# ──────────────────────────────────────────
+# SETUP
+# ──────────────────────────────────────────
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
+# tells FastAPI where the login endpoint is
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+
+# ──────────────────────────────────────────
+# SCHEMAS
+# ──────────────────────────────────────────
 
 class Token(BaseModel):
     access_token: str
@@ -35,13 +44,23 @@ class RegisterRequest(BaseModel):
     department: str | None = None
 
 
+# ──────────────────────────────────────────
+# HELPER FUNCTIONS
+# ──────────────────────────────────────────
+
 def hash_password(password: str) -> str:
     """Convert plain password to hashed version"""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Check if plain password matches hashed password"""
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(
+        plain.encode("utf-8"),
+        hashed.encode("utf-8")
+    )
 
 def create_access_token(data: dict) -> str:
     """Create a JWT token with expiry"""
@@ -75,9 +94,14 @@ def get_current_user(
     return user
 
 
+# ──────────────────────────────────────────
+# ROUTES
+# ──────────────────────────────────────────
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
     try:
+        # Check if email already exists
         existing = db.query(models.User).filter(
             models.User.email == request.email
         ).first()
@@ -88,6 +112,7 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
                 detail="Email already registered"
             )
 
+        # Hash password and save user
         hashed = hash_password(request.password)
         user = models.User(
             email=request.email,
@@ -118,10 +143,12 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
+    # Find user by email
     user = db.query(models.User).filter(
         models.User.email == form_data.username
     ).first()
 
+    # Check user exists and password is correct
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -129,6 +156,7 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Create JWT token
     token = create_access_token(data={"sub": user.email})
     logger.info(f"User logged in: {user.email}")
 

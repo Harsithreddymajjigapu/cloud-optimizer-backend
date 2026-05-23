@@ -4,19 +4,26 @@ from sqlalchemy.exc import SQLAlchemyError
 import models
 import schemas
 from database import engine, get_db
-from Worker import analyze_server_efficiency
-from auth import router as auth_router
+from worker import analyze_server_efficiency
+from auth import router as auth_router, get_current_user
 import logging
 
+# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Cloud Optimizer API")
 
+# Register auth routes
 app.include_router(auth_router)
 
+# Create all tables on startup
 models.Base.metadata.create_all(bind=engine)
 
+
+# ──────────────────────────────────────────
+# USER ROUTES
+# ──────────────────────────────────────────
 
 @app.post("/users/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -30,7 +37,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Email '{user.email}' is already registered"
             )
-            
+
         db_user = models.User(**user.model_dump())
         db.add(db_user)
         db.commit()
@@ -65,10 +72,18 @@ def get_users(db: Session = Depends(get_db)):
         )
 
 
+# ──────────────────────────────────────────
+# SERVER ROUTES — Protected by Auth
+# ──────────────────────────────────────────
+
 @app.post("/servers/", response_model=schemas.CloudResourceResponse, status_code=status.HTTP_201_CREATED)
-def create_server(resource: schemas.CloudResourceCreate, db: Session = Depends(get_db)):
+def create_server(
+    resource: schemas.CloudResourceCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)  # ← auth protection
+):
     try:
-        
+        # Check if user exists
         user = db.query(models.User).filter(
             models.User.id == resource.owner_id
         ).first()
@@ -79,6 +94,7 @@ def create_server(resource: schemas.CloudResourceCreate, db: Session = Depends(g
                 detail=f"User with id {resource.owner_id} not found"
             )
 
+        # Check if resource already registered
         existing = db.query(models.CloudResource).filter(
             models.CloudResource.resource_id == resource.resource_id
         ).first()
@@ -89,11 +105,13 @@ def create_server(resource: schemas.CloudResourceCreate, db: Session = Depends(g
                 detail=f"Resource '{resource.resource_id}' is already registered"
             )
 
+        # Save to database
         db_resource = models.CloudResource(**resource.model_dump())
         db.add(db_resource)
         db.commit()
         db.refresh(db_resource)
 
+        # Fire background task into Redis
         try:
             analyze_server_efficiency.delay(
                 db_resource.id,
@@ -122,7 +140,10 @@ def create_server(resource: schemas.CloudResourceCreate, db: Session = Depends(g
 
 
 @app.get("/servers/", response_model=list[schemas.CloudResourceResponse])
-def get_servers(db: Session = Depends(get_db)):
+def get_servers(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)  # ← auth protection
+):
     try:
         servers = db.query(models.CloudResource).all()
         return servers
@@ -135,9 +156,15 @@ def get_servers(db: Session = Depends(get_db)):
         )
 
 
+# ──────────────────────────────────────────
+# ALERT ROUTES — Protected by Auth
+# ──────────────────────────────────────────
 
 @app.get("/alerts/", response_model=list[schemas.OptimizationAlertResponse])
-def get_alerts(db: Session = Depends(get_db)):
+def get_alerts(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)  # ← auth protection
+):
     try:
         alerts = db.query(models.OptimizationAlert).all()
         return alerts
@@ -150,11 +177,13 @@ def get_alerts(db: Session = Depends(get_db)):
         )
 
 
-
 @app.get("/alerts/{resource_id}", response_model=list[schemas.OptimizationAlertResponse])
-def get_alerts_for_resource(resource_id: int, db: Session = Depends(get_db)):
+def get_alerts_for_resource(
+    resource_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)  # ← auth protection
+):
     try:
-        # Check if resource exists
         resource = db.query(models.CloudResource).filter(
             models.CloudResource.id == resource_id
         ).first()

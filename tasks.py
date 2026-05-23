@@ -1,4 +1,4 @@
-from Worker import celery_app, analyze_server_efficiency
+from worker import celery_app, analyze_server_efficiency
 from database import SessionLocal
 import models
 import logging
