@@ -8,22 +8,19 @@ from worker import analyze_server_efficiency
 from auth import router as auth_router, get_current_user
 import logging
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Cloud Optimizer API")
 
-# Register auth routes
+
+
 app.include_router(auth_router)
 
-# Create all tables on startup
+
 models.Base.metadata.create_all(bind=engine)
 
 
-# ──────────────────────────────────────────
-# USER ROUTES
-# ──────────────────────────────────────────
 
 @app.post("/users/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -72,10 +69,6 @@ def get_users(db: Session = Depends(get_db)):
         )
 
 
-# ──────────────────────────────────────────
-# SERVER ROUTES — Protected by Auth
-# ──────────────────────────────────────────
-
 @app.post("/servers/", response_model=schemas.CloudResourceResponse, status_code=status.HTTP_201_CREATED)
 def create_server(
     resource: schemas.CloudResourceCreate,
@@ -83,7 +76,6 @@ def create_server(
     current_user: models.User = Depends(get_current_user)  # ← auth protection
 ):
     try:
-        # Check if user exists
         user = db.query(models.User).filter(
             models.User.id == resource.owner_id
         ).first()
@@ -94,7 +86,6 @@ def create_server(
                 detail=f"User with id {resource.owner_id} not found"
             )
 
-        # Check if resource already registered
         existing = db.query(models.CloudResource).filter(
             models.CloudResource.resource_id == resource.resource_id
         ).first()
@@ -105,13 +96,11 @@ def create_server(
                 detail=f"Resource '{resource.resource_id}' is already registered"
             )
 
-        # Save to database
         db_resource = models.CloudResource(**resource.model_dump())
         db.add(db_resource)
         db.commit()
         db.refresh(db_resource)
 
-        # Fire background task into Redis
         try:
             analyze_server_efficiency.delay(
                 db_resource.id,
@@ -155,10 +144,6 @@ def get_servers(
             detail="Database error occurred while fetching servers"
         )
 
-
-# ──────────────────────────────────────────
-# ALERT ROUTES — Protected by Auth
-# ──────────────────────────────────────────
 
 @app.get("/alerts/", response_model=list[schemas.OptimizationAlertResponse])
 def get_alerts(
