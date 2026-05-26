@@ -10,6 +10,7 @@ import os
 import models
 from database import get_db
 import logging
+from fastapi.security import HTTPBearer
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # tells FastAPI where the login endpoint is
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+http_bearer = HTTPBearer()
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
