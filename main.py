@@ -13,17 +13,21 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Cloud Optimizer API")
 
-
-
 app.include_router(auth_router)
-
 
 models.Base.metadata.create_all(bind=engine)
 
 
+# ──────────────────────────────────────────
+# USER ROUTES — Protected by Auth
+# ──────────────────────────────────────────
 
 @app.post("/users/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
-def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+def create_user(
+    user: schemas.UserCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)  # ← auth protection
+):
     try:
         existing_user = db.query(models.User).filter(
             models.User.email == user.email
@@ -56,7 +60,10 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/users/", response_model=list[schemas.UserResponse])
-def get_users(db: Session = Depends(get_db)):
+def get_users(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)  # ← auth protection
+):
     try:
         users = db.query(models.User).all()
         return users
@@ -68,6 +75,10 @@ def get_users(db: Session = Depends(get_db)):
             detail="Database error occurred while fetching users"
         )
 
+
+# ──────────────────────────────────────────
+# SERVER ROUTES — Protected by Auth
+# ──────────────────────────────────────────
 
 @app.post("/servers/", response_model=schemas.CloudResourceResponse, status_code=status.HTTP_201_CREATED)
 def create_server(
@@ -144,6 +155,10 @@ def get_servers(
             detail="Database error occurred while fetching servers"
         )
 
+
+# ──────────────────────────────────────────
+# ALERT ROUTES — Protected by Auth
+# ──────────────────────────────────────────
 
 @app.get("/alerts/", response_model=list[schemas.OptimizationAlertResponse])
 def get_alerts(
