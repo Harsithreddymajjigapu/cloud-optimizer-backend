@@ -7,11 +7,6 @@ from unittest.mock import patch
 from main import app
 from database import get_db, Base
 
-# ──────────────────────────────────────────
-# TEST DATABASE SETUP
-# Uses a separate SQLite DB for tests
-# so we never touch the real PostgreSQL DB
-# ──────────────────────────────────────────
 
 TEST_DATABASE_URL = "sqlite:///./test.db"
 
@@ -31,19 +26,12 @@ def override_get_db():
         db.close()
 
 
-# Override real DB with test DB
 app.dependency_overrides[get_db] = override_get_db
 
-# Create test tables
 Base.metadata.create_all(bind=engine)
 
-# Test client
 client = TestClient(app)
 
-
-# ──────────────────────────────────────────
-# USER TESTS
-# ──────────────────────────────────────────
 
 def test_create_user_success():
     """Should create a user and return 201"""
@@ -57,13 +45,12 @@ def test_create_user_success():
 
 def test_create_user_duplicate_email():
     """Should return 400 if email already exists"""
-    # First creation
+    
     client.post("/users/", json={
         "email": "duplicate@gmail.com",
         "department": "HR"
     })
 
-    # Second creation with same email
     response = client.post("/users/", json={
         "email": "duplicate@gmail.com",
         "department": "HR"
@@ -79,21 +66,16 @@ def test_get_users():
     assert isinstance(response.json(), list)
 
 
-# ──────────────────────────────────────────
-# SERVER TESTS
-# ──────────────────────────────────────────
-
 def test_create_server_success():
     """Should create a server and queue analysis task"""
 
-    # First create a user
     user_response = client.post("/users/", json={
         "email": "serverowner@gmail.com",
         "department": "DevOps"
     })
     user_id = user_response.json()["id"]
 
-    # Mock .delay() so we don't actually call Redis in tests
+    
     with patch("main.analyze_server_efficiency.delay") as mock_delay:
         response = client.post("/servers/", json={
             "resource_id": "vm-001",
@@ -107,14 +89,14 @@ def test_create_server_success():
         assert response.status_code == 201
         assert response.json()["resource_id"] == "vm-001"
 
-        # Confirm .delay() was called once
+        
         mock_delay.assert_called_once()
 
 
 def test_create_server_duplicate_resource():
     """Should return 400 if resource already registered"""
 
-    # Create a user first
+    
     user_response = client.post("/users/", json={
         "email": "owner2@gmail.com",
         "department": "Cloud"
@@ -122,7 +104,7 @@ def test_create_server_duplicate_resource():
     user_id = user_response.json()["id"]
 
     with patch("main.analyze_server_efficiency.delay"):
-        # First registration
+        
         client.post("/servers/", json={
             "resource_id": "vm-duplicate",
             "resource_type": "VM",
@@ -132,7 +114,7 @@ def test_create_server_duplicate_resource():
             "owner_id": user_id
         })
 
-        # Second registration with same resource_id
+        
         response = client.post("/servers/", json={
             "resource_id": "vm-duplicate",
             "resource_type": "VM",
@@ -154,7 +136,7 @@ def test_create_server_invalid_owner():
         "allocated_cpu_cores": 2,
         "average_cpu_usage_percent": 50.0,
         "cost_per_hour": 0.3,
-        "owner_id": 99999  # non existent user
+        "owner_id": 99999
     })
     assert response.status_code == 404
     assert "not found" in response.json()["detail"]
@@ -166,10 +148,6 @@ def test_get_servers():
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
-
-# ──────────────────────────────────────────
-# ALERT TESTS
-# ──────────────────────────────────────────
 
 def test_get_alerts():
     """Should return list of alerts"""

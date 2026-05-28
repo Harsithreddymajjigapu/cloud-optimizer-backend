@@ -18,15 +18,11 @@ app.include_router(auth_router)
 models.Base.metadata.create_all(bind=engine)
 
 
-# ──────────────────────────────────────────
-# USER ROUTES — Protected by Auth
-# ──────────────────────────────────────────
-
 @app.post("/users/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     user: schemas.UserCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)  # ← auth protection
+    current_user: models.User = Depends(get_current_user)
 ):
     try:
         existing_user = db.query(models.User).filter(
@@ -62,7 +58,7 @@ def create_user(
 @app.get("/users/", response_model=list[schemas.UserResponse])
 def get_users(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)  # ← auth protection
+    current_user: models.User = Depends(get_current_user)
 ):
     try:
         users = db.query(models.User).all()
@@ -76,15 +72,11 @@ def get_users(
         )
 
 
-# ──────────────────────────────────────────
-# SERVER ROUTES — Protected by Auth
-# ──────────────────────────────────────────
-
 @app.post("/servers/", response_model=schemas.CloudResourceResponse, status_code=status.HTTP_201_CREATED)
 def create_server(
     resource: schemas.CloudResourceCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)  # ← auth protection
+    current_user: models.User = Depends(get_current_user)
 ):
     try:
         user = db.query(models.User).filter(
@@ -142,7 +134,7 @@ def create_server(
 @app.get("/servers/", response_model=list[schemas.CloudResourceResponse])
 def get_servers(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)  # ← auth protection
+    current_user: models.User = Depends(get_current_user)
 ):
     try:
         servers = db.query(models.CloudResource).all()
@@ -156,14 +148,10 @@ def get_servers(
         )
 
 
-# ──────────────────────────────────────────
-# ALERT ROUTES — Protected by Auth
-# ──────────────────────────────────────────
-
 @app.get("/alerts/", response_model=list[schemas.OptimizationAlertResponse])
 def get_alerts(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)  # ← auth protection
+    current_user: models.User = Depends(get_current_user)
 ):
     try:
         alerts = db.query(models.OptimizationAlert).all()
@@ -181,7 +169,7 @@ def get_alerts(
 def get_alerts_for_resource(
     resource_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)  # ← auth protection
+    current_user: models.User = Depends(get_current_user)
 ):
     try:
         resource = db.query(models.CloudResource).filter(
