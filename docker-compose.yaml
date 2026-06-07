@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+
+  web:
+    build: .
+    container_name: cloud_optimizer_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    restart: always
+
+  worker:
+    build: .
+    container_name: cloud_optimizer_worker
+    command: celery -A worker worker --loglevel=info --pool=solo
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    restart: always
+
+  db:
+    image: postgres:15
+    container_name: cloud_optimizer_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: harsith@1
+      POSTGRES_DB: cloud_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  postgres_data:
