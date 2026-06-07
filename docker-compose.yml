@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
 
   web:
@@ -10,7 +8,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - .:/app
     restart: always
@@ -22,7 +21,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - .:/app
     restart: always
@@ -32,13 +32,18 @@ services:
     container_name: cloud_optimizer_db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: harsith@1
+      POSTGRES_PASSWORD: "huhuhu@123"
       POSTGRES_DB: cloud_db
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
