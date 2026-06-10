@@ -7,6 +7,8 @@ from unittest.mock import patch
 from main import app
 from database import get_db, Base
 
+from auth import get_current_user
+import models
 
 TEST_DATABASE_URL = "sqlite:///./test.db"
 
@@ -25,8 +27,18 @@ def override_get_db():
     finally:
         db.close()
 
+def override_get_current_user():
+    """Bypass JWT authentication and return a mock user"""
+    return models.User(
+        id=1, 
+        email="test_admin@gmail.com", 
+        department="Engineering",
+        hashed_password="fake_password"
+    )
+
 
 app.dependency_overrides[get_db] = override_get_db
+app.dependency_overrides[get_current_user] = override_get_current_user
 
 Base.metadata.create_all(bind=engine)
 
@@ -89,14 +101,12 @@ def test_create_server_success():
         assert response.status_code == 201
         assert response.json()["resource_id"] == "vm-001"
 
-        
         mock_delay.assert_called_once()
 
 
 def test_create_server_duplicate_resource():
     """Should return 400 if resource already registered"""
 
-    
     user_response = client.post("/users/", json={
         "email": "owner2@gmail.com",
         "department": "Cloud"
@@ -104,7 +114,6 @@ def test_create_server_duplicate_resource():
     user_id = user_response.json()["id"]
 
     with patch("main.analyze_server_efficiency.delay"):
-        
         client.post("/servers/", json={
             "resource_id": "vm-duplicate",
             "resource_type": "VM",
@@ -114,7 +123,6 @@ def test_create_server_duplicate_resource():
             "owner_id": user_id
         })
 
-        
         response = client.post("/servers/", json={
             "resource_id": "vm-duplicate",
             "resource_type": "VM",

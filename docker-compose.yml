@@ -10,6 +10,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - .:/app
     restart: always
@@ -21,6 +23,32 @@ services:
     env_file:
       - .env
     depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - .:/app
+    restart: always
+
+  # --- ADDED REDIS BROKER ---
+  redis:
+    image: redis:7-alpine
+    container_name: cloud_optimizer_redis
+    ports:
+      - "6379:6379"
+    restart: always
+
+  # --- ADDED CELERY BEAT CLOCK ---
+  beat:
+    build: .
+    container_name: cloud_optimizer_beat
+    command: celery -A worker beat --loglevel=info
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_started
       db:
         condition: service_healthy
     volumes:
