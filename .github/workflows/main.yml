@@ -32,7 +32,8 @@ jobs:
           GEMINI_API_KEY: test_key
           SECRET_KEY: test_secret_key_123
         run: |
-          pytest tests/ -v
+          # Changed to run as a Python module to fix the import path
+          python -m pytest tests/ -v
 
   build:
     needs: test
