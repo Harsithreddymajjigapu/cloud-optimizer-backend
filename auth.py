@@ -4,13 +4,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from jose import JWTError, jwt
 import bcrypt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 import os
 import models
 from database import get_db
 import logging
-from fastapi.security import HTTPBearer
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +19,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-http_bearer = HTTPBearer()
-
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
 
 class Token(BaseModel):
     access_token: str
@@ -51,7 +47,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(data: dict) -> str:
     """Create a JWT token with expiry"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -78,7 +74,6 @@ def get_current_user(
         raise credentials_exception
 
     return user
-
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
@@ -117,7 +112,6 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
             detail="Database error during registration"
         )
 
-
 @router.post("/login", response_model=Token)
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -138,3 +132,15 @@ def login(
     logger.info(f"User logged in: {user.email}")
 
     return {"access_token": token, "token_type": "bearer"}
+
+@router.get("/me")
+def get_my_profile(current_user: models.User = Depends(get_current_user)):
+    """
+    Test endpoint. If you pass your JWT token here, it will return your user details.
+    This proves that your auth setup is working perfectly.
+    """
+    return {
+        "user_id": current_user.id,
+        "email": current_user.email,
+        "department": current_user.department
+    }
