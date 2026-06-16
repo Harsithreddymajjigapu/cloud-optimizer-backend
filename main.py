@@ -71,6 +71,58 @@ def get_users(
             detail="Database error occurred while fetching users"
         )
 
+@app.post("/api/v1/accounts/link-azure", status_code=status.HTTP_201_CREATED)
+def link_azure_account(
+    account_data: schemas.CloudAccountCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Secure endpoint for logged-in users to save their Azure App Registration keys.
+    Requires a valid JWT token in the header.
+    """
+    try:
+        existing_account = db.query(models.CloudAccount).filter(
+            models.CloudAccount.tenant_id == account_data.tenant_id
+        ).first()
+        
+        if existing_account:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="This Azure Tenant is already linked."
+            )
+
+        new_account = models.CloudAccount(
+            user_id=current_user.id,  
+            company_name=account_data.company_name,
+            tenant_id=account_data.tenant_id,
+            client_id=account_data.client_id,
+            client_secret=account_data.client_secret
+        )
+        
+        db.add(new_account)
+        db.commit()
+        db.refresh(new_account)
+        
+        logger.info(f"User {current_user.email} successfully linked Azure Tenant: {new_account.tenant_id}")
+        
+        return {
+            "status": "success", 
+            "message": f"Azure account for {new_account.company_name} successfully linked.",
+            "account_id": new_account.id
+        }
+
+    except HTTPException:
+        raise
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error while linking Azure account: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred while saving cloud credentials"
+        )
+
 
 @app.post("/servers/", response_model=schemas.CloudResourceResponse, status_code=status.HTTP_201_CREATED)
 def create_server(
