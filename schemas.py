@@ -44,3 +44,12 @@ class OptimizationAlertResponse(OptimizationAlertBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+    
+class CloudAccountCreate(BaseModel):
+    company_name: str
+    tenant_id: str
+    client_id: str
+    client_secret: str
+
+    class Config:
+        from_attributes = True
