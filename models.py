@@ -36,10 +36,10 @@ class OptimizationAlert(Base):
 
 class CloudAccount(Base):
     __tablename__ = "cloud_accounts"
-
     id = Column(Integer, primary_key=True, index=True)
     company_name = Column(String, index=True)
-    
     tenant_id = Column(String, unique=True, index=True)
     client_id = Column(String, unique=True)
     client_secret = Column(String)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    owner = relationship("User", backref="cloud_accounts")
