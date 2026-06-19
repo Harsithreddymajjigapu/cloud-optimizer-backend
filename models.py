@@ -41,5 +41,6 @@ class CloudAccount(Base):
     tenant_id = Column(String, unique=True, index=True)
     client_id = Column(String, unique=True)
     client_secret = Column(String)
+    subscription_id = Column(String, nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"))
     owner = relationship("User", backref="cloud_accounts")

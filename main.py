@@ -1,11 +1,13 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from typing import List
 import models
 import schemas
 from database import engine, get_db
 from worker import analyze_server_efficiency
 from auth import router as auth_router, get_current_user
+from tasks import fetch_azure_vms_for_user  # <-- Added the new Celery task import
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -71,6 +73,7 @@ def get_users(
             detail="Database error occurred while fetching users"
         )
 
+
 @app.post("/api/v1/accounts/link-azure", status_code=status.HTTP_201_CREATED)
 def link_azure_account(
     account_data: schemas.CloudAccountCreate,
@@ -97,7 +100,8 @@ def link_azure_account(
             company_name=account_data.company_name,
             tenant_id=account_data.tenant_id,
             client_id=account_data.client_id,
-            client_secret=account_data.client_secret
+            client_secret=account_data.client_secret,
+            subscription_id=account_data.subscription_id # Ensured this maps correctly
         )
         
         db.add(new_account)
@@ -121,6 +125,45 @@ def link_azure_account(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error occurred while saving cloud credentials"
+        )
+
+
+# --- NEW ROUTE: Trigger Background Sync ---
+@app.post("/api/v1/accounts/sync", status_code=status.HTTP_202_ACCEPTED)
+def trigger_azure_sync(
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Triggers the Celery background worker to log into Azure and fetch VMs.
+    """
+    # .delay() sends the job to Redis/Celery immediately without making the user wait
+    fetch_azure_vms_for_user.delay(current_user.id)
+    
+    return {"message": "Azure sync started in the background!"}
+
+
+# --- NEW ROUTE: Fetch Saved Resources for Dashboard ---
+@app.get("/api/v1/resources", response_model=list[schemas.CloudResourceResponse])
+def get_user_resources(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Returns all Azure servers saved in the database for the logged-in user.
+    """
+    try:
+        # Ask the database ONLY for servers where owner_id matches the VIP wristband
+        servers = db.query(models.CloudResource).filter(
+            models.CloudResource.owner_id == current_user.id
+        ).all()
+        
+        return servers
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error while fetching resources: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred while fetching resources"
         )
 
 
@@ -249,4 +292,3 @@ def get_alerts_for_resource(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error occurred"
         )
-        

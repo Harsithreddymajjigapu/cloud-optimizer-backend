@@ -1,10 +1,9 @@
-import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from dotenv import load_dotenv
 
-load_dotenv()
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
+# --- HARDCODED URL FOR DOCKER ---
+# Bypassing os.getenv entirely to force the connection to the 'db' container
+SQLALCHEMY_DATABASE_URL = "postgresql://postgres:huhuhu%40123@db:5432/cloud_db"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 

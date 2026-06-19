@@ -8,6 +8,7 @@ celery
 redis
 google-genai
 azure-identity
+azure-mgmt-compute
 azure-mgmt-monitor
 python-jose[cryptography]
 passlib[bcrypt]

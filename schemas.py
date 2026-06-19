@@ -50,6 +50,7 @@ class CloudAccountCreate(BaseModel):
     tenant_id: str
     client_id: str
     client_secret: str
+    subscription_id: str
 
     class Config:
         from_attributes = True
