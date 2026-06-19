@@ -5,9 +5,9 @@ from typing import List
 import models
 import schemas
 from database import engine, get_db
-from worker import analyze_server_efficiency
+from tasks import analyze_server_efficiency
 from auth import router as auth_router, get_current_user
-from tasks import fetch_azure_vms_for_user  # <-- Added the new Celery task import
+from tasks import fetch_azure_vms_for_user  
 import logging
 
 logging.basicConfig(level=logging.INFO)
