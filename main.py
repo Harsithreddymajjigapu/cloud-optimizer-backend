@@ -127,8 +127,6 @@ def link_azure_account(
             detail="Database error occurred while saving cloud credentials"
         )
 
-
-# --- NEW ROUTE: Trigger Background Sync ---
 @app.post("/api/v1/accounts/sync", status_code=status.HTTP_202_ACCEPTED)
 def trigger_azure_sync(
     current_user: models.User = Depends(get_current_user)
@@ -136,13 +134,11 @@ def trigger_azure_sync(
     """
     Triggers the Celery background worker to log into Azure and fetch VMs.
     """
-    # .delay() sends the job to Redis/Celery immediately without making the user wait
     fetch_azure_vms_for_user.delay(current_user.id)
     
     return {"message": "Azure sync started in the background!"}
 
 
-# --- NEW ROUTE: Fetch Saved Resources for Dashboard ---
 @app.get("/api/v1/resources", response_model=list[schemas.CloudResourceResponse])
 def get_user_resources(
     db: Session = Depends(get_db),
@@ -152,7 +148,6 @@ def get_user_resources(
     Returns all Azure servers saved in the database for the logged-in user.
     """
     try:
-        # Ask the database ONLY for servers where owner_id matches the VIP wristband
         servers = db.query(models.CloudResource).filter(
             models.CloudResource.owner_id == current_user.id
         ).all()
@@ -292,3 +287,14 @@ def get_alerts_for_resource(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error occurred"
         )
+
+@app.get("/api/v1/alerts")
+def get_ai_recommendations(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Fetches all Gemini AI optimization alerts for the user's servers."""
+    
+    alerts = db.query(models.OptimizationAlert)\
+        .join(models.CloudResource)\
+        .filter(models.CloudResource.owner_id == user.id)\
+        .all()
+        
+    return alerts
