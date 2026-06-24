@@ -4,15 +4,11 @@ import logging
 from azure.identity import ClientSecretCredential
 from azure.mgmt.compute import ComputeManagementClient
 
-# Import your database and models
 from database import SessionLocal
 import models
 
-# Setup logging to watch the terminal output
 logger = logging.getLogger(__name__)
 
-# Initialize the Celery App (Connecting to Redis Broker)
-# This assumes your Redis container is accessible at redis://redis:6379/0
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
 celery_app = Celery("tasks", broker=CELERY_BROKER_URL)
 
@@ -28,14 +24,9 @@ def analyze_server_efficiency(vm_id, cpu_usage, resource_id, resource_type, cost
     db = SessionLocal()
     
     try:
-        # [Your existing Gemini AI Logic goes here]
-        # Example prompt: "I have an Azure VM running at {cpu_usage}% CPU costing {cost_per_hour}/hr. How can I optimize this?"
-        
-        # Mocked AI Response generation for context:
         ai_recommendation = f"Downsize {resource_type} to B1s tier. You are only using {cpu_usage}% CPU."
         estimated_savings = 12.00 
         
-        # Save the alert to the database
         new_alert = models.Alert(
             resource_id=vm_id,
             recommendation=ai_recommendation,
@@ -65,7 +56,6 @@ def fetch_azure_vms_for_user(self, user_id: int):
     db = SessionLocal()
 
     try:
-        # 1. Grab the fresh Azure keys from the database
         account = db.query(models.CloudAccount).filter(models.CloudAccount.user_id == user_id).first()
         if not account:
             logger.error("No Azure account linked for this user.")
@@ -73,7 +63,6 @@ def fetch_azure_vms_for_user(self, user_id: int):
             
         logger.info("Real subscription detected. Connecting to Microsoft Azure...")
 
-        # 2. Authenticate with Azure using the secret value (not ID!)
         credential = ClientSecretCredential(
             tenant_id=account.tenant_id,
             client_id=account.client_id,
@@ -85,27 +74,23 @@ def fetch_azure_vms_for_user(self, user_id: int):
             subscription_id=account.subscription_id
         )
 
-        # 3. Fetch the servers from Azure
         vms = compute_client.virtual_machines.list_all()
         synced_count = 0
 
         for vm in vms:
-            # Check if we already saved this VM
             existing_vm = db.query(models.Resource).filter(
                 models.Resource.resource_id == vm.id
             ).first()
 
             if not existing_vm:
-                # Mocking CPU and Cost for the example (usually pulled from Azure Monitor)
                 avg_cpu = 45 
                 cost_hr = 0.02 
                 
-                # Save the new VM to PostgreSQL
                 new_vm = models.Resource(
                     owner_id=user_id,
                     resource_id=vm.id,
                     resource_type="Azure Virtual Machine",
-                    allocated_cpu_cores=1,  # You can dynamically parse vm.hardware_profile.vm_size
+                    allocated_cpu_cores=1,
                     average_cpu_usage_percent=avg_cpu,
                     cost_per_hour=cost_hr
                 )
@@ -114,8 +99,7 @@ def fetch_azure_vms_for_user(self, user_id: int):
                 db.commit()
                 db.refresh(new_vm)
                 synced_count += 1
-
-                # 👇 THE EVENT TRIGGER: Hand the baton to the AI Analyst 👇
+                
                 try:
                     analyze_server_efficiency.delay(
                         new_vm.id,
@@ -127,7 +111,7 @@ def fetch_azure_vms_for_user(self, user_id: int):
                     logger.info(f"Published AI analysis event for server: {new_vm.resource_id}")
                 except Exception as trigger_error:
                     logger.warning(f"Failed to publish event to Redis: {trigger_error}")
-                # 👆 END OF EVENT TRIGGER 👆
+                
                 
         logger.info(f"Successfully synced {synced_count} REAL Azure VMs!")
         
