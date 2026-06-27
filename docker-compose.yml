@@ -39,7 +39,6 @@ services:
       - "6379:6379"
     restart: always
 
-  # --- ADDED CELERY BEAT CLOCK ---
   beat:
     build: .
     container_name: cloud_optimizer_beat
