@@ -101,7 +101,7 @@ def link_azure_account(
             tenant_id=account_data.tenant_id,
             client_id=account_data.client_id,
             client_secret=account_data.client_secret,
-            subscription_id=account_data.subscription_id # Ensured this maps correctly
+            subscription_id=account_data.subscription_id
         )
         
         db.add(new_account)
