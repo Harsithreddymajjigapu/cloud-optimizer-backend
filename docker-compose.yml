@@ -30,8 +30,7 @@ services:
     volumes:
       - .:/app
     restart: always
-
-  # --- ADDED REDIS BROKER ---
+    
   redis:
     image: redis:7-alpine
     container_name: cloud_optimizer_redis

@@ -10,10 +10,10 @@ google-genai
 azure-identity
 azure-mgmt-compute
 azure-mgmt-monitor
+cryptography
 python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 pytest
 httpx
 pytest-asyncio
-
