@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
@@ -36,11 +36,20 @@ class OptimizationAlert(Base):
 
 class CloudAccount(Base):
     __tablename__ = "cloud_accounts"
+
+    # A tenant is a whole company and a client_id is one app registration in it,
+    # so neither is globally unique to a single user of this product — two
+    # colleagues must both be able to link. What must not repeat is the same
+    # person linking the same subscription twice.
+    __table_args__ = (
+        UniqueConstraint("user_id", "subscription_id", name="uq_user_subscription"),
+    )
+
     id = Column(Integer, primary_key=True, index=True)
     company_name = Column(String, index=True)
-    tenant_id = Column(String, unique=True, index=True)
-    client_id = Column(String, unique=True)
-    client_secret = Column(String)
+    tenant_id = Column(String, index=True, nullable=False)
+    client_id = Column(String, nullable=False)
+    client_secret = Column(String, nullable=False)
     subscription_id = Column(String, nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner = relationship("User", backref="cloud_accounts")
