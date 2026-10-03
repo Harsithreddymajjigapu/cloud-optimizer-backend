@@ -55,6 +55,8 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           GEMINI_API_KEY: test_key
           SECRET_KEY: test_secret_key_123
+          CELERY_BROKER_URL: redis://localhost:6379/0
+          ENCRYPTION_KEY: HjjFcNC_OtSMMTiAgFUonXp-HxXgNecLF7B5xyM-_gE=
         run: |
           python -m pytest tests/ -v
 
