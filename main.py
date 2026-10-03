@@ -7,7 +7,9 @@ import schemas
 from database import engine, get_db
 from tasks import analyze_server_efficiency
 from auth import router as auth_router, get_current_user
-from tasks import fetch_azure_vms_for_user  
+from tasks import fetch_azure_vms_for_user
+from azure_client import verify_azure_credentials, AzureCredentialError
+from crypto import encrypt_secret, decrypt_secret
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -81,50 +83,188 @@ def link_azure_account(
     current_user: models.User = Depends(get_current_user)
 ):
     """
-    Secure endpoint for logged-in users to save their Azure App Registration keys.
-    Requires a valid JWT token in the header.
+    Link an Azure subscription to the logged-in user.
+
+    The credentials are proved against Azure before anything is written, and the
+    client secret is encrypted at rest.
     """
     try:
+        # Scoped to this user and this subscription. Two colleagues sharing a
+        # tenant can both link; the same person cannot link one twice.
         existing_account = db.query(models.CloudAccount).filter(
-            models.CloudAccount.tenant_id == account_data.tenant_id
+            models.CloudAccount.user_id == current_user.id,
+            models.CloudAccount.subscription_id == account_data.subscription_id
         ).first()
-        
+
         if existing_account:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="This Azure Tenant is already linked."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You have already linked this subscription."
+            )
+
+        # Fail now, with a message the user can act on, rather than silently
+        # hours later inside a background worker.
+        try:
+            verify_azure_credentials(
+                account_data.tenant_id,
+                account_data.client_id,
+                account_data.client_secret,
+                account_data.subscription_id,
+            )
+        except AzureCredentialError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exc.message
             )
 
         new_account = models.CloudAccount(
-            user_id=current_user.id,  
+            user_id=current_user.id,
             company_name=account_data.company_name,
             tenant_id=account_data.tenant_id,
             client_id=account_data.client_id,
-            client_secret=account_data.client_secret,
+            client_secret=encrypt_secret(account_data.client_secret),
             subscription_id=account_data.subscription_id
         )
-        
+
         db.add(new_account)
         db.commit()
         db.refresh(new_account)
-        
-        logger.info(f"User {current_user.email} successfully linked Azure Tenant: {new_account.tenant_id}")
-        
+
+        # Log the subscription, never the credentials.
+        logger.info(
+            "User %s linked subscription %s",
+            current_user.email, new_account.subscription_id
+        )
+
         return {
-            "status": "success", 
+            "status": "success",
             "message": f"Azure account for {new_account.company_name} successfully linked.",
             "account_id": new_account.id
         }
 
     except HTTPException:
         raise
-        
+
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error while linking Azure account: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error occurred while saving cloud credentials"
+        )
+
+
+@app.get("/api/v1/accounts", response_model=list[schemas.CloudAccountResponse])
+def list_linked_accounts(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """List this user's linked subscriptions. Secrets are never returned."""
+    return db.query(models.CloudAccount).filter(
+        models.CloudAccount.user_id == current_user.id
+    ).all()
+
+
+@app.put("/api/v1/accounts/{account_id}", response_model=schemas.CloudAccountResponse)
+def update_azure_account(
+    account_id: int,
+    updates: schemas.CloudAccountUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Update a linked account — most often rotating a client secret that Azure
+    has expired. Without this, an expired secret meant a permanently broken
+    sync with no way to recover.
+    """
+    account = db.query(models.CloudAccount).filter(
+        models.CloudAccount.id == account_id,
+        models.CloudAccount.user_id == current_user.id
+    ).first()
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Linked account not found"
+        )
+
+    # Verify the combination that will exist after the update, not just the
+    # fields supplied — a new secret has to work against the existing tenant.
+    merged = {
+        "tenant_id": updates.tenant_id or account.tenant_id,
+        "client_id": updates.client_id or account.client_id,
+        "subscription_id": updates.subscription_id or account.subscription_id,
+    }
+    plain_secret = updates.client_secret or decrypt_secret(account.client_secret)
+
+    try:
+        verify_azure_credentials(
+            merged["tenant_id"],
+            merged["client_id"],
+            plain_secret,
+            merged["subscription_id"],
+        )
+    except AzureCredentialError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message)
+
+    try:
+        if updates.company_name is not None:
+            account.company_name = updates.company_name
+        account.tenant_id = merged["tenant_id"]
+        account.client_id = merged["client_id"]
+        account.subscription_id = merged["subscription_id"]
+        if updates.client_secret is not None:
+            account.client_secret = encrypt_secret(updates.client_secret)
+
+        db.commit()
+        db.refresh(account)
+
+        logger.info("User %s updated linked account %s", current_user.email, account_id)
+        return account
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error while updating Azure account: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred while updating cloud credentials"
+        )
+
+
+@app.delete("/api/v1/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+def unlink_azure_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Unlink a subscription and discard its stored credentials.
+
+    Without this, a customer who stopped using the product had no way to make
+    us stop holding live credentials to their cloud.
+    """
+    account = db.query(models.CloudAccount).filter(
+        models.CloudAccount.id == account_id,
+        models.CloudAccount.user_id == current_user.id
+    ).first()
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Linked account not found"
+        )
+
+    try:
+        db.delete(account)
+        db.commit()
+        logger.info("User %s unlinked account %s", current_user.email, account_id)
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error while unlinking Azure account: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred while unlinking the account"
         )
 
 @app.post("/api/v1/accounts/sync", status_code=status.HTTP_202_ACCEPTED)
