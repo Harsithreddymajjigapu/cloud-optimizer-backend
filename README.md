@@ -176,3 +176,40 @@ cloud-optimizer-backend/
 ## 👤 Author
 
 Harsith Reddy Majjigapu
+## Azure App Registration setup
+
+The app reads cloud resources on the customer's behalf. It never writes, so the
+App Registration should be granted the minimum that allows reading:
+
+| Role | Scope | Why it is needed |
+|---|---|---|
+| **Reader** | Subscription | List virtual machines and their sizes |
+| **Monitoring Reader** | Subscription | Read `Percentage CPU` from Azure Monitor |
+
+Do **not** grant Contributor or Owner. This tool only reads, and a broader role
+would mean the stored credentials could modify or delete infrastructure.
+
+Steps for the customer:
+
+1. Entra ID → App registrations → New registration
+2. Certificates & secrets → New client secret (note the expiry date)
+3. Subscription → Access control (IAM) → Add role assignment → Reader → the app
+4. Repeat step 3 for Monitoring Reader
+5. Supply tenant ID, client ID, client secret and subscription ID to `POST /api/v1/accounts/link-azure`
+
+Client secrets expire — 24 months at most. When one does, rotate it in Azure and
+send the new value to `PUT /api/v1/accounts/{account_id}`. There is no need to
+re-supply the other fields.
+
+### Credential storage
+
+Client secrets are encrypted with Fernet before being written to the database.
+The key lives in `ENCRYPTION_KEY` and never in the database, so a database dump
+on its own cannot be used to reach a customer's cloud. Generate one with:
+
+```
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Changing the key makes every stored secret undecryptable and forces all
+customers to re-link, so treat it as long-lived.

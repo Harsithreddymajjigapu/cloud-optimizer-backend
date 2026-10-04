@@ -51,7 +51,7 @@ jobs:
           pip install -r requirements.txt
       - name: Run pytest tests
         env:
-          DATABASE_URL: postgresql://postgres:password123@localhost:5432/cloud_optimizer_db
+          DATABASE_URL: postgresql+psycopg2://postgres:password123@localhost:5432/cloud_optimizer_db
           REDIS_URL: redis://localhost:6379/0
           GEMINI_API_KEY: test_key
           SECRET_KEY: test_secret_key_123
