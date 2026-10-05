@@ -30,9 +30,14 @@ def average_cpu_percent(monitor_client, resource_uri, lookback_days=METRIC_LOOKB
     end = datetime.datetime.now(datetime.timezone.utc)
     start = end - datetime.timedelta(days=lookback_days)
 
+    # Azure takes timespan as a URL query parameter, where '+' decodes as a
+    # space — so isoformat()'s '+00:00' arrives malformed and is rejected.
+    # The 'Z' suffix is the same instant with no '+' to mangle.
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+
     response = monitor_client.metrics.list(
         resource_uri=resource_uri,
-        timespan=f"{start.isoformat()}/{end.isoformat()}",
+        timespan=f"{start.strftime(fmt)}/{end.strftime(fmt)}",
         interval=METRIC_INTERVAL,
         metricnames="Percentage CPU",
         aggregation="Average",
