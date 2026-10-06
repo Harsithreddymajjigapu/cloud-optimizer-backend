@@ -5,6 +5,7 @@ import logging
 from celery import Celery
 from azure.core.exceptions import HttpResponseError
 
+from ai_analyst import analyse_resource
 from azure_client import build_clients
 from database import SessionLocal
 import models
@@ -30,14 +31,9 @@ def average_cpu_percent(monitor_client, resource_uri, lookback_days=METRIC_LOOKB
     end = datetime.datetime.now(datetime.timezone.utc)
     start = end - datetime.timedelta(days=lookback_days)
 
-    # Azure takes timespan as a URL query parameter, where '+' decodes as a
-    # space — so isoformat()'s '+00:00' arrives malformed and is rejected.
-    # The 'Z' suffix is the same instant with no '+' to mangle.
-    fmt = "%Y-%m-%dT%H:%M:%SZ"
-
     response = monitor_client.metrics.list(
         resource_uri=resource_uri,
-        timespan=f"{start.strftime(fmt)}/{end.strftime(fmt)}",
+        timespan=f"{start.isoformat()}/{end.isoformat()}",
         interval=METRIC_INTERVAL,
         metricnames="Percentage CPU",
         aggregation="Average",
@@ -94,6 +90,7 @@ def queue_analysis(resource):
             resource.resource_id,
             resource.resource_type,
             resource.cost_per_hour,
+            resource.allocated_cpu_cores,
         )
         logger.info("Queued analysis for %s", resource.resource_id)
     except Exception as exc:
@@ -101,12 +98,15 @@ def queue_analysis(resource):
 
 
 @celery_app.task(name="tasks.analyze_server_efficiency")
-def analyze_server_efficiency(vm_id, cpu_usage, resource_id, resource_type, cost_per_hour):
+def analyze_server_efficiency(vm_id, cpu_usage, resource_id, resource_type,
+                              cost_per_hour, cores=None):
     """
     Turn a VM's measured CPU usage into an optimization alert.
 
-    NOTE: the recommendation text is still rule-based. Replacing it with a
-    Gemini call, and populating cli_command_to_fix, is the next change.
+    Gemini produces the recommendation, a savings estimate and the CLI command
+    to apply the fix. If it is unavailable — no key, quota exhausted, API down —
+    a rule-based sentence is written instead, so an alert always lands rather
+    than the resource silently going unreported.
     """
     logger.info("Analyzing %s (avg CPU %s%%)", resource_id, cpu_usage)
     db = SessionLocal()
@@ -116,21 +116,40 @@ def analyze_server_efficiency(vm_id, cpu_usage, resource_id, resource_type, cost
             logger.info("No CPU data for %s; nothing to recommend.", resource_id)
             return
 
-        recommendation = (
-            f"{resource_type} averaged {cpu_usage}% CPU over the last "
-            f"{METRIC_LOOKBACK_DAYS} days. Consider downsizing to a smaller SKU."
+        analysis = analyse_resource(
+            resource_id=resource_id,
+            resource_type=resource_type,
+            cpu_usage=cpu_usage,
+            cost_per_hour=cost_per_hour,
+            cores=cores,
+            lookback_days=METRIC_LOOKBACK_DAYS,
         )
+
+        if analysis is not None:
+            recommendation = analysis.recommendation
+            savings = analysis.potential_savings
+            cli_command = analysis.action_required or None
+        else:
+            recommendation = (
+                f"{resource_type} averaged {cpu_usage}% CPU over the last "
+                f"{METRIC_LOOKBACK_DAYS} days. Consider downsizing to a smaller SKU."
+            )
+            savings = None
+            cli_command = None
 
         alert = models.OptimizationAlert(
             resource_id=vm_id,
             ai_recommendation=recommendation,
-            estimated_monthly_savings=None,
-            cli_command_to_fix=None,
+            estimated_monthly_savings=savings,
+            cli_command_to_fix=cli_command,
         )
         db.add(alert)
         db.commit()
 
-        logger.info("Saved alert for resource id %s", vm_id)
+        logger.info(
+            "Saved alert for resource id %s (%s)",
+            vm_id, "Gemini" if analysis else "rule-based",
+        )
 
     except Exception as exc:
         logger.error("Error during analysis of %s: %s", resource_id, exc)
@@ -191,7 +210,7 @@ def fetch_azure_vms_for_user(self, user_id: int):
 
     except HttpResponseError:
         db.rollback()
-        raise          # let Celery retry with backoff
+        raise        
     except Exception as exc:
         logger.error("Azure sync failed for user %s: %s", user_id, exc)
         db.rollback()
