@@ -122,8 +122,6 @@ def analyse_resource(resource_id, resource_type, cpu_usage,
             },
         )
     except Exception as exc:
-        # Quota, network, auth, model unavailable — all recoverable, because the
-        # caller writes a rule-based alert instead.
         logger.warning("Gemini call failed for %s: %s", resource_id, exc)
         return None
 
