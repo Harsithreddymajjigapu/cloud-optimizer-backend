@@ -61,8 +61,17 @@ def _get_client():
         logger.warning("GEMINI_API_KEY not set; falling back to rule-based recommendations.")
         return None
 
-    from google import genai
-    _client = genai.Client(api_key=api_key)
+    # The import is guarded too. If google-genai is missing from the image, an
+    # ImportError here would escape analyse_resource and kill the alert — the
+    # exact outcome the fallback exists to prevent. Returning None instead keeps
+    # the degraded path intact.
+    try:
+        from google import genai
+        _client = genai.Client(api_key=api_key)
+    except Exception as exc:
+        logger.warning("Gemini client unavailable (%s); using rule-based recommendations.", exc)
+        return None
+
     return _client
 
 
@@ -122,6 +131,8 @@ def analyse_resource(resource_id, resource_type, cpu_usage,
             },
         )
     except Exception as exc:
+        # Quota, network, auth, model unavailable — all recoverable, because the
+        # caller writes a rule-based alert instead.
         logger.warning("Gemini call failed for %s: %s", resource_id, exc)
         return None
 

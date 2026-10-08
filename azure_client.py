@@ -68,6 +68,16 @@ def verify_azure_credentials(tenant_id, client_id, client_secret, subscription_i
         # is iterated. Without this next(), invalid credentials would pass.
         next(iter(client.virtual_machines.list_all()), None)
 
+    except ValueError as exc:
+        # The SDK validates the shape of the tenant and client IDs locally,
+        # before any network call, and raises a bare ValueError. Without this
+        # branch it escapes as a 500 — so a typo'd GUID would give the user a
+        # stack trace while a wrong password gave a readable message.
+        raise AzureCredentialError(
+            f"One of the IDs is not in a valid format: {exc}. "
+            "Tenant ID, client ID and subscription ID must each be a GUID, "
+            "for example 084a029e-1234-5678-9abc-def012345678."
+        )
     except ClientAuthenticationError:
         raise AzureCredentialError(
             "Azure rejected these credentials. Check the tenant ID, client ID "
