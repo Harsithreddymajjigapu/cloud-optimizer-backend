@@ -334,3 +334,60 @@ def test_alert_falls_back_when_gemini_unavailable():
         assert alert.cli_command_to_fix is None
     finally:
         db.close()
+        
+# ──────────────────────────────────────────────── Azure Monitor timespan
+
+def test_timespan_has_no_plus_sign():
+    """
+    Azure takes the timespan as a URL query parameter, where '+' means a space.
+    isoformat() renders UTC as '+00:00', so Azure receives a mangled value and
+    answers 'Detected invalid time interval input'.
+
+    This was found live, fixed, then silently reverted by a bad merge — while
+    the whole suite stayed green, because a MagicMock accepts any string. This
+    test is the tripwire that makes the revert impossible to miss.
+    """
+    import datetime
+    from tasks import format_timespan
+
+    start = datetime.datetime(2026, 10, 1, 12, 53, 38, 321071, tzinfo=datetime.timezone.utc)
+    end = datetime.datetime(2026, 10, 8, 12, 53, 38, 321071, tzinfo=datetime.timezone.utc)
+
+    timespan = format_timespan(start, end)
+
+    assert timespan == "2026-10-01T12:53:38Z/2026-10-08T12:53:38Z"
+    assert "+" not in timespan, "a '+' decodes as a space in a query string"
+    assert "." not in timespan, "microseconds are noise at an hourly interval"
+
+
+def test_sync_sends_a_valid_timespan_to_azure():
+    """
+    Guards the call site, not just the helper. If someone goes back to building
+    the timespan inline with isoformat(), this fails even though the helper is
+    still correct.
+    """
+    db = TestingSessionLocal()
+    try:
+        account = db.query(models.CloudAccount).filter(
+            models.CloudAccount.subscription_id == FAKE_ACCOUNT["subscription_id"]
+        ).first()
+        user_id = account.user_id
+    finally:
+        db.close()
+
+    compute = MagicMock()
+    compute.virtual_machines.list_all.return_value = [
+        fake_vm("/subscriptions/33333333/vm-timespan", "Standard_B1s")
+    ]
+    compute.resource_skus.list.return_value = [fake_sku("Standard_B1s", 1)]
+
+    monitor = MagicMock()
+    monitor.metrics.list.return_value = fake_metrics_response([5.0])
+
+    with patch("tasks.build_clients", return_value=(compute, monitor)):
+        from tasks import fetch_azure_vms_for_user
+        fetch_azure_vms_for_user.apply(args=[user_id])
+
+    timespan = monitor.metrics.list.call_args.kwargs["timespan"]
+    assert "+" not in timespan, f"malformed timespan reached Azure: {timespan}"
+    assert timespan.count("Z") == 2, f"both ends must be Z-suffixed: {timespan}"
