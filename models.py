@@ -14,8 +14,18 @@ class User(Base):
 class CloudResource(Base):
     __tablename__ = "cloud_resources"
 
+    # resource_id was globally unique, which made the product single-tenant by
+    # accident: if two users linked the same Azure subscription, only the first
+    # could ever own a row for a given VM. The second user's sync silently
+    # updated the first user's records and created none of their own.
+    #
+    # The same VM seen by two users is two rows, one each.
+    __table_args__ = (
+        UniqueConstraint("owner_id", "resource_id", name="uq_owner_resource"),
+    )
+
     id = Column(Integer, primary_key=True, index=True)
-    resource_id = Column(String, unique=True, index=True) 
+    resource_id = Column(String, index=True, nullable=False)
     resource_type = Column(String)
     allocated_cpu_cores = Column(Integer)
     average_cpu_usage_percent = Column(Float)
@@ -32,7 +42,12 @@ class OptimizationAlert(Base):
     ai_recommendation = Column(String) 
     estimated_monthly_savings = Column(Float)
     cli_command_to_fix = Column(String)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)    
+    # datetime.utcnow is deprecated in Python 3.12 (it returns a naive datetime
+    # that claims to be UTC) and is the source of the warnings in every test run.
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+    )
 
 class CloudAccount(Base):
     __tablename__ = "cloud_accounts"

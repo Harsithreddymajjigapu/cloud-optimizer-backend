@@ -19,6 +19,26 @@ METRIC_LOOKBACK_DAYS = int(os.getenv("METRIC_LOOKBACK_DAYS", "7"))
 METRIC_INTERVAL = os.getenv("METRIC_INTERVAL", "PT1H")
 
 
+#   Azure Monitor takes the timespan as a URL QUERY PARAMETER, where '+' is the
+#   encoding for a space. datetime.isoformat() renders UTC as '+00:00', so the
+#   '+' is decoded on Azure's side and the value arrives as
+#   '2026-10-08T12:53:38.321071 00:00' — which Azure rejects with
+#   "Detected invalid time interval input".
+#
+#   'Z' is the same instant in ISO 8601 with no character that survives URL
+#   decoding differently. Seconds precision is enough; the microseconds were
+#   never meaningful for an hourly interval.
+#
+#   This cost a live debugging session once and was then re-broken by a bad
+#   merge, which is why it now has a name and a test of its own.
+TIMESPAN_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def format_timespan(start, end):
+    """Render an Azure Monitor timespan. See the note above before changing."""
+    return f"{start.strftime(TIMESPAN_FORMAT)}/{end.strftime(TIMESPAN_FORMAT)}"
+
+
 def average_cpu_percent(monitor_client, resource_uri, lookback_days=METRIC_LOOKBACK_DAYS):
     """
     Average 'Percentage CPU' for one VM over the lookback window, from Azure Monitor.
@@ -33,7 +53,7 @@ def average_cpu_percent(monitor_client, resource_uri, lookback_days=METRIC_LOOKB
 
     response = monitor_client.metrics.list(
         resource_uri=resource_uri,
-        timespan=f"{start.isoformat()}/{end.isoformat()}",
+        timespan=format_timespan(start, end),
         interval=METRIC_INTERVAL,
         metricnames="Percentage CPU",
         aggregation="Average",
@@ -130,6 +150,7 @@ def analyze_server_efficiency(vm_id, cpu_usage, resource_id, resource_type,
             savings = analysis.potential_savings
             cli_command = analysis.action_required or None
         else:
+            # Degraded, not failed: the operator still learns the VM is idle.
             recommendation = (
                 f"{resource_type} averaged {cpu_usage}% CPU over the last "
                 f"{METRIC_LOOKBACK_DAYS} days. Consider downsizing to a smaller SKU."
@@ -156,6 +177,38 @@ def analyze_server_efficiency(vm_id, cpu_usage, resource_id, resource_type,
         db.rollback()
     finally:
         db.close()
+
+
+@celery_app.task(name="tasks.sync_all_accounts")
+def sync_all_accounts():
+    """
+    Fan out a sync to every user who has linked a subscription.
+
+    This is what the beat scheduler runs. fetch_azure_vms_for_user needs a user
+    id, and a schedule has no way to know which users exist, so this task finds
+    them and queues one job each — rather than one long job that would stall
+    every other user if a single subscription were slow or unreachable.
+    """
+    db = SessionLocal()
+    try:
+        user_ids = [
+            row[0]
+            for row in db.query(models.CloudAccount.user_id).distinct().all()
+        ]
+    except Exception as exc:
+        logger.error("Scheduled sync could not list linked accounts: %s", exc)
+        return
+    finally:
+        db.close()
+
+    if not user_ids:
+        logger.info("Scheduled sync: no linked accounts, nothing to do.")
+        return
+
+    for user_id in user_ids:
+        fetch_azure_vms_for_user.delay(user_id)
+
+    logger.info("Scheduled sync queued for %s user(s): %s", len(user_ids), user_ids)
 
 
 @celery_app.task(
@@ -210,7 +263,7 @@ def fetch_azure_vms_for_user(self, user_id: int):
 
     except HttpResponseError:
         db.rollback()
-        raise        
+        raise          # let Celery retry with backoff
     except Exception as exc:
         logger.error("Azure sync failed for user %s: %s", user_id, exc)
         db.rollback()
@@ -242,9 +295,16 @@ def sync_one_subscription(db, user_id, account):
             logger.warning("Metrics unavailable for %s: %s", vm.id, exc)
             avg_cpu = None
 
+        # Scoped to this user. Looking up by resource_id alone meant a second
+        # user syncing the same subscription refreshed the FIRST user's rows
+        # and created none of their own — their alerts list stayed empty
+        # forever while the sync reported success.
         resource = (
             db.query(models.CloudResource)
-            .filter(models.CloudResource.resource_id == vm.id)
+            .filter(
+                models.CloudResource.resource_id == vm.id,
+                models.CloudResource.owner_id == user_id,
+            )
             .first()
         )
 
