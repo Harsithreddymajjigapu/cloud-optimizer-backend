@@ -23,14 +23,6 @@ import models
 
 from tests.test_main import client, TestingSessionLocal
 
-
-# The sync task ends by calling analyze_server_efficiency.delay(), which
-# publishes to the broker and returns. In production a running worker picks that
-# up; in a test there is no worker, so the second half of the pipeline would
-# never execute and no alert would ever be written.
-#
-# Eager mode makes .delay() run the task inline instead of publishing it, so one
-# test can follow the chain from sync all the way to the alert row.
 from tasks import celery_app
 celery_app.conf.task_always_eager = True
 celery_app.conf.task_eager_propagates = True
@@ -269,6 +261,33 @@ def test_vm_with_no_metrics_is_skipped():
 
 # ──────────────────────────────────────────────────────── Gemini integration
 
+def make_resource(resource_id, owner_id=1):
+    """
+    Create a real CloudResource and return its id.
+
+    These two tests used to pass a hardcoded resource id of 1 to the analysis
+    task, for a row that was never created. SQLite ignores foreign keys by
+    default so the alert inserted happily; Postgres rejected it in CI with
+    ForeignKeyViolation. The tests were green because the database was lax, not
+    because the code was right.
+    """
+    db = TestingSessionLocal()
+    try:
+        resource = models.CloudResource(
+            owner_id=owner_id,
+            resource_id=resource_id,
+            resource_type="Standard_B1s",
+            allocated_cpu_cores=1,
+            average_cpu_usage_percent=0.83,
+            cost_per_hour=0.012,
+        )
+        db.add(resource)
+        db.commit()
+        db.refresh(resource)
+        return resource.id
+    finally:
+        db.close()
+
 def test_alert_uses_gemini_when_available():
     """
     A successful Gemini call must populate all three fields — including the
@@ -289,10 +308,12 @@ def test_alert_uses_gemini_when_available():
     finally:
         db.close()
 
+    vm_id = make_resource("/subs/x/vm-gemini")
+
     with patch("tasks.analyse_resource", return_value=fake_analysis):
         from tasks import analyze_server_efficiency
         analyze_server_efficiency.apply(args=[
-            1, 0.83, "/subs/x/vm-gemini", "Standard_B1s", 0.012, 1
+            vm_id, 0.83, "/subs/x/vm-gemini", "Standard_B1s", 0.012, 1
         ])
 
     db = TestingSessionLocal()
@@ -318,10 +339,12 @@ def test_alert_falls_back_when_gemini_unavailable():
     finally:
         db.close()
 
+    vm_id = make_resource("/subs/x/vm-fallback")
+
     with patch("tasks.analyse_resource", return_value=None):
         from tasks import analyze_server_efficiency
         analyze_server_efficiency.apply(args=[
-            1, 0.83, "/subs/x/vm-fallback", "Standard_B1s", None, 1
+            vm_id, 0.83, "/subs/x/vm-fallback", "Standard_B1s", None, 1
         ])
 
     db = TestingSessionLocal()
