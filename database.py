@@ -2,10 +2,14 @@ import os
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-SQLALCHEMY_DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+psycopg2://postgres:huhuhu%40123@db:5432/cloud_db",
-)
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
+if not SQLALCHEMY_DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Example: "
+        "postgresql+psycopg2://postgres:<password>@db:5432/cloud_db  "
+        "(the +psycopg2 is required — a bare postgresql:// resolves to "
+        "psycopg3, which is not installed)"
+    )
 
 IS_SQLITE = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
 
