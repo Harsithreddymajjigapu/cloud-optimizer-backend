@@ -14,7 +14,8 @@ jobs:
       db:
         image: postgres:15
         env:
-          POSTGRES_DB: cloud_optimizer_db
+          # Named *_test so conftest's guard allows it to be wiped between runs.
+          POSTGRES_DB: cloud_optimizer_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password123
         ports:
@@ -51,19 +52,12 @@ jobs:
           pip install -r requirements.txt
       - name: Run pytest tests
         env:
-          # +psycopg2 is required. SQLAlchemy 2.1 made a bare 'postgresql://'
-          # mean psycopg3, which is not installed — CI failed with
-          # ModuleNotFoundError: No module named 'psycopg'.
-          DATABASE_URL: postgresql+psycopg2://postgres:password123@localhost:5432/cloud_optimizer_db
+          DATABASE_URL: postgresql+psycopg2://postgres:password123@localhost:5432/cloud_optimizer_test
           CELERY_BROKER_URL: redis://localhost:6379/0
           GEMINI_API_KEY: ""          # empty on purpose: the tests must exercise
                                       # the rule-based fallback, never call the
                                       # real API, and never need a live key.
           SECRET_KEY: test_secret_key_123
-          # A throwaway Fernet key for CI only. The real ENCRYPTION_KEY lives in
-          # .env on the developer's machine and must never be committed or put
-          # in a workflow file — anything encrypted with it would be readable by
-          # anyone who can see this repo.
           ENCRYPTION_KEY: HjjFcNC_OtSMMTiAgFUonXp-HxXgNecLF7B5xyM-_gE=
         run: |
           python -m pytest tests/ -v
