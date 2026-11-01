@@ -19,7 +19,7 @@ services:
   worker:
     build: .
     container_name: cloud_optimizer_worker
-    command: celery -A worker worker --loglevel=info --pool=solo
+    command: celery -A worker worker --loglevel=info
     env_file:
       - .env
     depends_on:
@@ -57,9 +57,11 @@ services:
     image: postgres:15
     container_name: cloud_optimizer_db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "huhuhu@123"
-      POSTGRES_DB: cloud_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      # Was hardcoded and committed to a public repo. Only a local dev database,
+      # so nothing was at risk — but it is the first thing a reviewer notices.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-cloud_db}
     ports:
       - "5432:5432"
     volumes:
