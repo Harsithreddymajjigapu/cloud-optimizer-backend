@@ -22,7 +22,9 @@ class CloudResourceBase(BaseModel):
     cost_per_hour: float
 
 class CloudResourceCreate(CloudResourceBase):
-    owner_id: int 
+    # No owner_id. The owner is taken from the authenticated caller, so it
+    # cannot be forged by putting someone else's id in the request body.
+    pass
 
 class CloudResourceResponse(BaseModel):
     id: int

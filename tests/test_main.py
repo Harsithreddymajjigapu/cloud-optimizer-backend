@@ -79,15 +79,8 @@ def test_get_users():
 
 
 def test_create_server_success():
-    """Should create a server and queue analysis task"""
+    """Should create a server, owned by the caller, and queue analysis"""
 
-    user_response = client.post("/users/", json={
-        "email": "serverowner@gmail.com",
-        "department": "DevOps"
-    })
-    user_id = user_response.json()["id"]
-
-    
     with patch("main.analyze_server_efficiency.delay") as mock_delay:
         response = client.post("/servers/", json={
             "resource_id": "vm-001",
@@ -95,59 +88,45 @@ def test_create_server_success():
             "allocated_cpu_cores": 4,
             "average_cpu_usage_percent": 15.0,
             "cost_per_hour": 0.5,
-            "owner_id": user_id
         })
 
         assert response.status_code == 201
         assert response.json()["resource_id"] == "vm-001"
+        # The owner comes from the token, not the request body.
+        assert response.json()["owner_id"] == 1
 
         mock_delay.assert_called_once()
 
 
 def test_create_server_duplicate_resource():
-    """Should return 400 if resource already registered"""
+    """Should return 400 if the SAME USER registers a resource twice"""
 
-    user_response = client.post("/users/", json={
-        "email": "owner2@gmail.com",
-        "department": "Cloud"
-    })
-    user_id = user_response.json()["id"]
+    body = {
+        "resource_id": "vm-duplicate",
+        "resource_type": "VM",
+        "allocated_cpu_cores": 2,
+        "average_cpu_usage_percent": 30.0,
+        "cost_per_hour": 0.3,
+    }
 
     with patch("main.analyze_server_efficiency.delay"):
-        client.post("/servers/", json={
-            "resource_id": "vm-duplicate",
-            "resource_type": "VM",
-            "allocated_cpu_cores": 2,
-            "average_cpu_usage_percent": 30.0,
-            "cost_per_hour": 0.3,
-            "owner_id": user_id
-        })
-
-        response = client.post("/servers/", json={
-            "resource_id": "vm-duplicate",
-            "resource_type": "VM",
-            "allocated_cpu_cores": 2,
-            "average_cpu_usage_percent": 30.0,
-            "cost_per_hour": 0.3,
-            "owner_id": user_id
-        })
+        client.post("/servers/", json=body)
+        response = client.post("/servers/", json=body)
 
         assert response.status_code == 400
         assert "already registered" in response.json()["detail"]
 
 
-def test_create_server_invalid_owner():
-    """Should return 404 if owner user does not exist"""
-    response = client.post("/servers/", json={
-        "resource_id": "vm-999",
-        "resource_type": "VM",
-        "allocated_cpu_cores": 2,
-        "average_cpu_usage_percent": 50.0,
-        "cost_per_hour": 0.3,
-        "owner_id": 99999
-    })
-    assert response.status_code == 404
-    assert "not found" in response.json()["detail"]
+# test_create_server_invalid_owner was deleted, not fixed.
+#
+# It asserted that posting "owner_id": 99999 returns 404 — which only makes
+# sense if the caller is allowed to name the owner. That was the bug: any user
+# could create resources in any other user's account by typing their id. The
+# test did not catch the bug, it guaranteed it.
+#
+# The owner now comes from the token, so there is no owner id to be invalid.
+# test_cannot_create_a_resource_owned_by_someone_else in tests/test_isolation.py
+# covers what this one should have been checking.
 
 
 def test_get_servers():

@@ -61,19 +61,17 @@ def create_user(
 
 @app.get("/users/", response_model=list[schemas.UserResponse])
 def get_users(
-    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    try:
-        users = db.query(models.User).all()
-        return users
+    """
+    Return the caller's own account.
 
-    except SQLAlchemyError as e:
-        logger.error(f"Database error while fetching users: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Database error occurred while fetching users"
-        )
+    This used to return every row in the users table to anyone holding a valid
+    token, which exposed every customer's email address. There is no admin role
+    in this product, so there is nobody for whom "list all users" is a
+    legitimate request.
+    """
+    return [current_user]
 
 
 @app.post("/api/v1/accounts/link-azure", status_code=status.HTTP_201_CREATED)
@@ -309,18 +307,13 @@ def create_server(
     current_user: models.User = Depends(get_current_user)
 ):
     try:
-        user = db.query(models.User).filter(
-            models.User.id == resource.owner_id
-        ).first()
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"User with id {resource.owner_id} not found"
-            )
-
+        # The owner is whoever is logged in. It used to come from the request
+        # body, so any user could create a resource owned by any other user
+        # simply by typing their id — and the owner id was never checked
+        # against the caller.
         existing = db.query(models.CloudResource).filter(
-            models.CloudResource.resource_id == resource.resource_id
+            models.CloudResource.resource_id == resource.resource_id,
+            models.CloudResource.owner_id == current_user.id
         ).first()
 
         if existing:
@@ -329,7 +322,10 @@ def create_server(
                 detail=f"Resource '{resource.resource_id}' is already registered"
             )
 
-        db_resource = models.CloudResource(**resource.model_dump())
+        db_resource = models.CloudResource(
+            **resource.model_dump(),
+            owner_id=current_user.id,
+        )
         db.add(db_resource)
         db.commit()
         db.refresh(db_resource)
@@ -340,7 +336,8 @@ def create_server(
                 db_resource.average_cpu_usage_percent,
                 db_resource.resource_id,
                 db_resource.resource_type,
-                db_resource.cost_per_hour
+                db_resource.cost_per_hour,
+                db_resource.allocated_cpu_cores,
             )
             logger.info(f"Analysis task queued for: {db_resource.resource_id}")
 
@@ -367,7 +364,11 @@ def get_servers(
     current_user: models.User = Depends(get_current_user)
 ):
     try:
-        servers = db.query(models.CloudResource).all()
+        # Scoped to the caller. Previously returned every resource belonging to
+        # every user, including their Azure resource IDs.
+        servers = db.query(models.CloudResource).filter(
+            models.CloudResource.owner_id == current_user.id
+        ).all()
         return servers
 
     except SQLAlchemyError as e:
@@ -384,7 +385,16 @@ def get_alerts(
     current_user: models.User = Depends(get_current_user)
 ):
     try:
-        alerts = db.query(models.OptimizationAlert).all()
+        # An alert belongs to a resource, and a resource belongs to a user, so
+        # ownership is one join away. Without it this returned every user's
+        # recommendations — including their VM names and usage figures — to
+        # anyone with an account.
+        alerts = (
+            db.query(models.OptimizationAlert)
+            .join(models.CloudResource)
+            .filter(models.CloudResource.owner_id == current_user.id)
+            .all()
+        )
         return alerts
 
     except SQLAlchemyError as e:
@@ -402,8 +412,15 @@ def get_alerts_for_resource(
     current_user: models.User = Depends(get_current_user)
 ):
     try:
+        # Ownership is part of the lookup, not a check afterwards. Anyone could
+        # previously walk id=1,2,3... and read every resource's alerts.
+        #
+        # A resource owned by someone else returns 404, not 403: a 403 would
+        # confirm the id exists, which is itself a leak. "Not found" is the
+        # correct answer to "show me something that is not yours".
         resource = db.query(models.CloudResource).filter(
-            models.CloudResource.id == resource_id
+            models.CloudResource.id == resource_id,
+            models.CloudResource.owner_id == current_user.id
         ).first()
 
         if not resource:
