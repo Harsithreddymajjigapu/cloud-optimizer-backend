@@ -41,7 +41,7 @@ services:
   beat:
     build: .
     container_name: cloud_optimizer_beat
-    command: celery -A worker beat --loglevel=info
+    command: celery -A worker beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     env_file:
       - .env
     depends_on:
@@ -58,8 +58,6 @@ services:
     container_name: cloud_optimizer_db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      # Was hardcoded and committed to a public repo. Only a local dev database,
-      # so nothing was at risk — but it is the first thing a reviewer notices.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-cloud_db}
     ports:
