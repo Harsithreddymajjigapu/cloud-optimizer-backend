@@ -1,22 +1,24 @@
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# The fallback is what you get when DATABASE_URL is unset, so it has to be
-# right. The previous one named a database that docker-compose never creates
-# (cloud_optimizer_db, not cloud_db), used a truncated password, and omitted the
-# driver.
-#
-# That last part matters: SQLAlchemy 2.1 changed the default driver for a bare
-# 'postgresql://' from psycopg2 to psycopg3, which is not in requirements.txt.
-# Naming the driver explicitly means a new SQLAlchemy release cannot silently
-# switch it again.
 SQLALCHEMY_DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg2://postgres:huhuhu%40123@db:5432/cloud_db",
 )
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+IS_SQLITE = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
+
+connect_args = {"check_same_thread": False} if IS_SQLITE else {}
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=connect_args)
+
+if IS_SQLITE:
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

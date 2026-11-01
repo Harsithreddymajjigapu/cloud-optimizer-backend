@@ -1,31 +1,13 @@
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
 from main import app
-from database import get_db, Base
+from database import engine, SessionLocal as TestingSessionLocal, Base
 
 from auth import get_current_user
 import models
 
-TEST_DATABASE_URL = "sqlite:///./test.db"
-
-engine = create_engine(
-    TEST_DATABASE_URL,
-    connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-def override_get_db():
-    """Replace real DB with test DB for all tests"""
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 def override_get_current_user():
     """Bypass JWT authentication and return a mock user"""
@@ -37,7 +19,6 @@ def override_get_current_user():
     )
 
 
-app.dependency_overrides[get_db] = override_get_db
 app.dependency_overrides[get_current_user] = override_get_current_user
 
 Base.metadata.create_all(bind=engine)
@@ -117,16 +98,6 @@ def test_create_server_duplicate_resource():
         assert "already registered" in response.json()["detail"]
 
 
-# test_create_server_invalid_owner was deleted, not fixed.
-#
-# It asserted that posting "owner_id": 99999 returns 404 — which only makes
-# sense if the caller is allowed to name the owner. That was the bug: any user
-# could create resources in any other user's account by typing their id. The
-# test did not catch the bug, it guaranteed it.
-#
-# The owner now comes from the token, so there is no owner id to be invalid.
-# test_cannot_create_a_resource_owned_by_someone_else in tests/test_isolation.py
-# covers what this one should have been checking.
 
 
 def test_get_servers():
