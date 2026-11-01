@@ -22,42 +22,6 @@ app.include_router(auth_router)
 models.Base.metadata.create_all(bind=engine)
 
 
-@app.post("/users/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
-def create_user(
-    user: schemas.UserCreate,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    try:
-        existing_user = db.query(models.User).filter(
-            models.User.email == user.email
-        ).first()
-
-        if existing_user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Email '{user.email}' is already registered"
-            )
-
-        db_user = models.User(**user.model_dump())
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
-
-        logger.info(f"New user created: {user.email}")
-        return db_user
-
-    except HTTPException:
-        raise
-
-    except SQLAlchemyError as e:
-        db.rollback()
-        logger.error(f"Database error while creating user: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Database error occurred while creating user"
-        )
-
 
 @app.get("/users/", response_model=list[schemas.UserResponse])
 def get_users(
@@ -87,8 +51,6 @@ def link_azure_account(
     client secret is encrypted at rest.
     """
     try:
-        # Scoped to this user and this subscription. Two colleagues sharing a
-        # tenant can both link; the same person cannot link one twice.
         existing_account = db.query(models.CloudAccount).filter(
             models.CloudAccount.user_id == current_user.id,
             models.CloudAccount.subscription_id == account_data.subscription_id
@@ -100,8 +62,6 @@ def link_azure_account(
                 detail="You have already linked this subscription."
             )
 
-        # Fail now, with a message the user can act on, rather than silently
-        # hours later inside a background worker.
         try:
             verify_azure_credentials(
                 account_data.tenant_id,
@@ -186,8 +146,6 @@ def update_azure_account(
             detail="Linked account not found"
         )
 
-    # Verify the combination that will exist after the update, not just the
-    # fields supplied — a new secret has to work against the existing tenant.
     merged = {
         "tenant_id": updates.tenant_id or account.tenant_id,
         "client_id": updates.client_id or account.client_id,
@@ -364,8 +322,6 @@ def get_servers(
     current_user: models.User = Depends(get_current_user)
 ):
     try:
-        # Scoped to the caller. Previously returned every resource belonging to
-        # every user, including their Azure resource IDs.
         servers = db.query(models.CloudResource).filter(
             models.CloudResource.owner_id == current_user.id
         ).all()
@@ -385,10 +341,6 @@ def get_alerts(
     current_user: models.User = Depends(get_current_user)
 ):
     try:
-        # An alert belongs to a resource, and a resource belongs to a user, so
-        # ownership is one join away. Without it this returned every user's
-        # recommendations — including their VM names and usage figures — to
-        # anyone with an account.
         alerts = (
             db.query(models.OptimizationAlert)
             .join(models.CloudResource)
@@ -412,12 +364,6 @@ def get_alerts_for_resource(
     current_user: models.User = Depends(get_current_user)
 ):
     try:
-        # Ownership is part of the lookup, not a check afterwards. Anyone could
-        # previously walk id=1,2,3... and read every resource's alerts.
-        #
-        # A resource owned by someone else returns 404, not 403: a 403 would
-        # confirm the id exists, which is itself a leak. "Not found" is the
-        # correct answer to "show me something that is not yours".
         resource = db.query(models.CloudResource).filter(
             models.CloudResource.id == resource_id,
             models.CloudResource.owner_id == current_user.id

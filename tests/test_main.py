@@ -26,28 +26,33 @@ Base.metadata.create_all(bind=engine)
 client = TestClient(app)
 
 
-def test_create_user_success():
-    """Should create a user and return 201"""
-    response = client.post("/users/", json={
+def test_register_user_success():
+    """Registering returns 201 and the account can then log in"""
+    response = client.post("/auth/register", json={
         "email": "testuser@gmail.com",
-        "department": "Engineering"
+        "password": "a-real-password",
+        "department": "Engineering",
     })
     assert response.status_code == 201
     assert response.json()["email"] == "testuser@gmail.com"
+    login = client.post("/auth/login", data={
+        "username": "testuser@gmail.com",
+        "password": "a-real-password",
+    })
+    assert login.status_code == 200
+    assert login.json()["access_token"]
 
 
-def test_create_user_duplicate_email():
+def test_register_duplicate_email():
     """Should return 400 if email already exists"""
-    
-    client.post("/users/", json={
+    body = {
         "email": "duplicate@gmail.com",
-        "department": "HR"
-    })
+        "password": "a-real-password",
+        "department": "HR",
+    }
+    client.post("/auth/register", json=body)
+    response = client.post("/auth/register", json=body)
 
-    response = client.post("/users/", json={
-        "email": "duplicate@gmail.com",
-        "department": "HR"
-    })
     assert response.status_code == 400
     assert "already registered" in response.json()["detail"]
 
