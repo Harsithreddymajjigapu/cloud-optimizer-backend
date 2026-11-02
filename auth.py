@@ -5,7 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from jose import JWTError, jwt
 import bcrypt
 from datetime import datetime, timedelta, timezone
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 import os
 import models
 from database import get_db
@@ -13,7 +13,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret-key")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY is not set. Generate one with: "
+        'python -c "import secrets; print(secrets.token_urlsafe(32))"'
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -26,8 +32,8 @@ class Token(BaseModel):
     token_type: str
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=72)
     department: str | None = None
 
 def hash_password(password: str) -> str:
