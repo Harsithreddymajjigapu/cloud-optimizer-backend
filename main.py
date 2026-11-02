@@ -146,12 +146,15 @@ def update_azure_account(
             detail="Linked account not found"
         )
 
+    def picked(new, current):
+        return current if new is None else new
+
     merged = {
-        "tenant_id": updates.tenant_id or account.tenant_id,
-        "client_id": updates.client_id or account.client_id,
-        "subscription_id": updates.subscription_id or account.subscription_id,
+        "tenant_id": picked(updates.tenant_id, account.tenant_id),
+        "client_id": picked(updates.client_id, account.client_id),
+        "subscription_id": picked(updates.subscription_id, account.subscription_id),
     }
-    plain_secret = updates.client_secret or decrypt_secret(account.client_secret)
+    plain_secret = picked(updates.client_secret, decrypt_secret(account.client_secret))
 
     try:
         verify_azure_credentials(
@@ -265,10 +268,6 @@ def create_server(
     current_user: models.User = Depends(get_current_user)
 ):
     try:
-        # The owner is whoever is logged in. It used to come from the request
-        # body, so any user could create a resource owned by any other user
-        # simply by typing their id — and the owner id was never checked
-        # against the caller.
         existing = db.query(models.CloudResource).filter(
             models.CloudResource.resource_id == resource.resource_id,
             models.CloudResource.owner_id == current_user.id
